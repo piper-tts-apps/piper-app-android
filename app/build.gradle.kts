@@ -3,6 +3,12 @@ plugins {
     kotlin("android")
 }
 
+// Upload signing is injected from the environment only (CI secrets).
+// Builds without these variables stay unsigned; no keystore or password
+// is ever stored in this repo.
+val uploadStoreFile = System.getenv("PIPER_UPLOAD_STORE_FILE")
+val hasUploadSigning = !uploadStoreFile.isNullOrBlank()
+
 android {
     namespace = "dev.ihorshevchuk.piper"
     compileSdk = 35
@@ -11,7 +17,7 @@ android {
         applicationId = "dev.ihorshevchuk.piper"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        versionCode = System.getenv("PIPER_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = "1.0"
     }
 
@@ -23,9 +29,21 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        if (hasUploadSigning) {
+            create("upload") {
+                storeFile = file(uploadStoreFile!!)
+                storePassword = System.getenv("PIPER_UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("PIPER_UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("PIPER_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasUploadSigning) signingConfig = signingConfigs.getByName("upload")
         }
     }
 }
