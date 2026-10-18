@@ -60,7 +60,7 @@ jobs:
           key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
 
       - name: Install Android packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
+        run: sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
 
       - name: Fetch native deps (ONNX Runtime, submodules)
         working-directory: piper-kotlin
@@ -189,7 +189,7 @@ jobs:
           key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
 
       - name: Install Android packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
+        run: sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
 
       - name: Fetch native deps (ONNX Runtime, submodules)
         working-directory: piper-kotlin
@@ -247,20 +247,19 @@ jobs:
           workload_identity_provider: projects/423109489874/locations/global/workloadIdentityPools/github-actions/providers/github
           service_account: play-ci-upload@piper-play-publisher.iam.gserviceaccount.com
 
-      # This step fails with a package-not-found class error until the
-      # first bundle for this package has been uploaded by hand in the
-      # Play Console: the Play API cannot create a package's first
-      # release. That failure is expected until then; use the AAB
-      # artifact above for the manual first upload.
-      # Also: changesNotSentForReview must NOT be set for this app -
+      # changesNotSentForReview must NOT be set for this app -
       # Play sends its changes for review automatically and the API
       # rejects the flag at commit time (learned from the first
       # dispatch, run 39103113053).
+      # debugSymbols: ship the native symbols with every upload so
+      # Play Console crash reports for the native libraries show
+      # function names instead of raw addresses.
       - name: Upload AAB to Play - Internal testing
         uses: r0adkll/upload-google-play@v1.1.5
         with:
           serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
           packageName: dev.ihorshevchuk.piper
           releaseFiles: piper-app-android/app/build/outputs/bundle/release/app-release.aab
+          debugSymbols: piper-app-android/app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip
           tracks: internal
           status: draft

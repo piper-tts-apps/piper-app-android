@@ -11,12 +11,13 @@ val hasUploadSigning = !uploadStoreFile.isNullOrBlank()
 
 android {
     namespace = "dev.ihorshevchuk.piper"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.ihorshevchuk.piper"
         minSdk = 26
-        targetSdk = 35
+        // Play requires new apps to target API 36 (Android 16).
+        targetSdk = 36
         versionCode = System.getenv("PIPER_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = "1.0"
     }
