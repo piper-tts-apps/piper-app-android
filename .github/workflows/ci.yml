@@ -113,3 +113,151 @@ jobs:
             This rolling release is replaced by every main build; it is
             the stand-in for a Play listing until a Play account exists.
           files: ${{ steps.apk.outputs.file }}
+
+  # Publish: build a signed Android App Bundle and upload it to the
+  # Play Console Internal testing track as a draft release.
+  # Manual dispatch only - push and pull_request runs skip this job.
+  # The signing key arrives as repo secrets; Play access comes via
+  # Workload Identity Federation, so no service-account key exists
+  # anywhere. Nothing secret is stored in this repo.
+  publish-internal:
+    name: Publish AAB to Play Internal testing
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Fail before doing any build work if a secret is missing: an
+      # unsigned or wrongly signed bundle must never reach the upload
+      # step, and a missing secret should cost seconds, not a build.
+      - name: Check Play upload secrets are set
+        env:
+          PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          PLAY_UPLOAD_STORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_STORE_PASSWORD }}
+          PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in PLAY_UPLOAD_KEYSTORE_BASE64 PLAY_UPLOAD_STORE_PASSWORD PLAY_UPLOAD_KEY_ALIAS PLAY_UPLOAD_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required secret $name is missing or empty. Add it under Settings > Secrets and variables > Actions, then dispatch again."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All Play upload secrets are present."
+
+      - name: Checkout app
+        uses: actions/checkout@v4
+        with:
+          path: piper-app-android
+
+      # The app builds against the sibling piper-kotlin repo through a
+      # Gradle composite build (settings.gradle.kts), so check the
+      # library out next to it, at its main branch.
+      - name: Checkout piper-kotlin (sibling library)
+        uses: actions/checkout@v4
+        with:
+          repository: piper-tts-apps/piper-kotlin
+          ref: main
+          path: piper-kotlin
+          submodules: recursive
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The action's default list includes the legacy 'tools'
+          # package, which sdkmanager no longer offers (same fix as
+          # piper-kotlin PR #6).
+          packages: platform-tools
+
+      - name: Load NDK version
+        run: |
+          echo "NDK_VERSION=$(grep '^piper\.ndkVersion=' piper-kotlin/gradle.properties | cut -d= -f2)" >> "$GITHUB_ENV"
+
+      - name: Cache NDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/ndk
+          key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
+
+      - name: Install Android packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
+
+      - name: Fetch native deps (ONNX Runtime, submodules)
+        working-directory: piper-kotlin
+        run: ./scripts/fetch-native-deps.sh
+
+      - name: Stage espeak-ng-data into app assets
+        working-directory: piper-app-android
+        run: ./scripts/stage-espeak-data.sh "$GITHUB_WORKSPACE/piper-kotlin/third-party/espeak-ng"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The keystore is materialised outside the workspace and the
+      # build picks its path up from PIPER_UPLOAD_STORE_FILE.
+      - name: Decode upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "PIPER_UPLOAD_STORE_FILE=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release bundle
+        working-directory: piper-app-android
+        env:
+          PIPER_UPLOAD_STORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_STORE_PASSWORD }}
+          PIPER_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          PIPER_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+          PIPER_VERSION_CODE: ${{ github.run_number }}
+        run: ./gradlew :app:bundleRelease --stacktrace
+
+      # Never upload an unsigned bundle: if the signing secrets did
+      # not line up with the build, this fails the job here.
+      - name: Verify the bundle is signed
+        run: |
+          OUTPUT="$(jarsigner -verify piper-app-android/app/build/outputs/bundle/release/app-release.aab 2>&1)"
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qi "unsigned" || ! echo "$OUTPUT" | grep -qi "jar verified"; then
+            echo "::error::app-release.aab is not signed with the upload key; refusing to continue."
+            exit 1
+          fi
+
+      # Keep the signed bundle as a workflow artifact as well, so the
+      # exact file can be downloaded and uploaded by hand if needed.
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: piper-app-android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+      # Credentials are short-lived (OIDC) and scoped to this repo.
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/423109489874/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: play-ci-upload@piper-play-publisher.iam.gserviceaccount.com
+
+      # This step fails with a package-not-found class error until the
+      # first bundle for this package has been uploaded by hand in the
+      # Play Console: the Play API cannot create a package's first
+      # release. That failure is expected until then; use the AAB
+      # artifact above for the manual first upload.
+      - name: Upload AAB to Play - Internal testing
+        uses: r0adkll/upload-google-play@v1.1.5
+        with:
+          serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
+          packageName: dev.ihorshevchuk.piper
+          releaseFiles: piper-app-android/app/build/outputs/bundle/release/app-release.aab
+          tracks: internal
+          status: draft
+          changesNotSentForReview: true
