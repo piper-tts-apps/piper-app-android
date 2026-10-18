@@ -252,6 +252,10 @@ jobs:
       # Play Console: the Play API cannot create a package's first
       # release. That failure is expected until then; use the AAB
       # artifact above for the manual first upload.
+      # Also: changesNotSentForReview must NOT be set for this app -
+      # Play sends its changes for review automatically and the API
+      # rejects the flag at commit time (learned from the first
+      # dispatch, run 39103113053).
       - name: Upload AAB to Play - Internal testing
         uses: r0adkll/upload-google-play@v1.1.5
         with:
@@ -260,4 +264,3 @@ jobs:
           releaseFiles: piper-app-android/app/build/outputs/bundle/release/app-release.aab
           tracks: internal
           status: draft
-          changesNotSentForReview: true
