@@ -15,3 +15,8 @@ android-sdk/
 *.iml
 # OS
 .DS_Store
+# Signing / Play credentials - never commit
+*.jks
+*.keystore
+keystore.properties
+play-service-account*.json
