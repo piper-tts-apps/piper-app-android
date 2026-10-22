@@ -5,9 +5,16 @@
 <h3 align="center">
   Piper for Android<br>
   Experience high-quality <b>offline neural text-to-speech</b> directly on your device.<br><br>
-  No Google Play listing yet - grab the latest build from the
+  Now in closed testing on Google Play - join the
+  <a href="https://groups.google.com/g/piper-android-testers">testers group</a>,
+  then <a href="https://play.google.com/apps/testing/dev.ihorshevchuk.piper">opt in and install</a>.<br>
+  Or grab the latest build from the
   <a href="https://github.com/piper-tts-apps/piper-app-android/releases/tag/latest">GitHub Releases page</a> 🚀
 </h3>
+
+# ⚠️ Powerful hardware required
+
+Piper runs large neural speech models entirely on your device - there is no cloud server to do the work for you. **This app requires powerful hardware to run well.** On a recent flagship or high-end device, voices are fast and smooth. On entry-level or older phones, synthesis can be very slow, with long pauses, and may not keep up with TalkBack or fast reading - please do not expect a usable experience on basic devices. If your device is lighter, prefer Compact (INT8) voices, but a powerful processor and plenty of memory is what Piper is designed for.
 
 [![CI](https://github.com/piper-tts-apps/piper-app-android/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/piper-tts-apps/piper-app-android/actions/workflows/ci.yml)
 
