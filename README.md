@@ -1,15 +1,18 @@
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="130">
+  <a href="https://play.google.com/apps/testing/dev.ihorshevchuk.piper">
+    <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="130"><br>
+    <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" width="180" alt="Get it on Google Play">
+  </a>
 </p>
 
 <h3 align="center">
-  Piper for Android<br>
+  Piper is now in closed testing on Google Play! 🎉<br>
   Experience high-quality <b>offline neural text-to-speech</b> directly on your device.<br><br>
-  Now in closed testing on Google Play - join the
-  <a href="https://groups.google.com/g/piper-android-testers">testers group</a>,
-  then <a href="https://play.google.com/apps/testing/dev.ihorshevchuk.piper">opt in and install</a>.<br>
+  Want to join the test?<br>
+  First join the <a href="https://groups.google.com/g/piper-android-testers">testers group</a>,
+  then <a href="https://play.google.com/apps/testing/dev.ihorshevchuk.piper">opt in and install</a> 🚀<br><br>
   Or grab the latest build from the
-  <a href="https://github.com/piper-tts-apps/piper-app-android/releases/tag/latest">GitHub Releases page</a> 🚀
+  <a href="https://github.com/piper-tts-apps/piper-app-android/releases/tag/latest">GitHub Releases page</a>
 </h3>
 
 # ⚠️ Powerful hardware required
