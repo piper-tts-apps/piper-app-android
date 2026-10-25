@@ -15,10 +15,15 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import dev.ihorshevchuk.piper.tts.FileVoiceStore
+import dev.ihorshevchuk.piper.voicedownload.StreamingPairSwitch
+import dev.ihorshevchuk.piper.voicedownload.StreamingVoicesStore
 import dev.ihorshevchuk.piper.voicedownload.VoiceFormat
 import dev.ihorshevchuk.piper.voicedownload.VoiceFormatStore
+import java.io.File
 
 /**
  * Settings screen (it replaces the old About screen): the Voice
@@ -135,6 +140,37 @@ class SettingsActivity : Activity() {
         root.addView(spinner)
         root.addView(TextView(this).apply {
             text = getString(R.string.voice_format_description)
+            textSize = 14f
+            setPadding(0, dp(4), 0, 0)
+        })
+        addStreamingSection(root)
+    }
+
+    /**
+     * Streaming voices switch, directly under the Voice format
+     * section: on unless the user opted out. The engine picks split
+     * vs single-file synthesis by file presence, so flipping the
+     * switch also renames the installed split pairs in or out of the
+     * engine's view (see StreamingPairSwitch); the rename runs off
+     * the main thread and takes effect on the next voice load.
+     */
+    private fun addStreamingSection(root: LinearLayout) {
+        val store = StreamingVoicesStore(this)
+        root.addView(Switch(this).apply {
+            text = getString(R.string.streaming_voices)
+            textSize = 16f
+            isChecked = store.enabled
+            setPadding(0, dp(12), 0, 0)
+            setOnCheckedChangeListener { _, checked ->
+                store.setEnabled(checked)
+                val voicesDir = File(filesDir, FileVoiceStore.VOICES_DIR_NAME)
+                Thread {
+                    StreamingPairSwitch.setPairsEnabled(voicesDir, checked)
+                }.apply { isDaemon = true; start() }
+            }
+        })
+        root.addView(TextView(this).apply {
+            text = getString(R.string.streaming_voices_description)
             textSize = 14f
             setPadding(0, dp(4), 0, 0)
         })

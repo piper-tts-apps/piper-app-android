@@ -19,7 +19,7 @@ android {
         // Play requires new apps to target API 36 (Android 16).
         targetSdk = 36
         versionCode = System.getenv("PIPER_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "1.0"
+        versionName = "1.1"
     }
 
     compileOptions {

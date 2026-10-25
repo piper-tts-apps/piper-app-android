@@ -87,6 +87,31 @@ object VoiceCatalogParser {
                     sizeBytes = variant.optLong("size_bytes", 0)
                 )
             }
+        // Split (encoder/decoder) form of the standard model, from the
+        // top-level `split` field. Optional like the other enrichment:
+        // either part missing or malformed means no split, never a
+        // broken entry.
+        val split = obj.optJSONObject("split")?.let { splitObj ->
+            fun part(name: String): VoiceSplitPart? {
+                val partObj = splitObj.optJSONObject(name) ?: return null
+                val path = partObj.optString("model").takeIf { it.isNotEmpty() }
+                    ?: return null
+                return VoiceSplitPart(
+                    modelPath = path,
+                    modelUrl = source.filesBaseUrl + path,
+                    sizeBytes = partObj.optLong("size_bytes", 0),
+                    md5Digest = partObj.optString("md5_digest")
+                        .takeIf { it.isNotEmpty() }
+                )
+            }
+            val encoder = part("encoder")
+            val decoder = part("decoder")
+            if (encoder != null && decoder != null) {
+                VoiceSplit(encoder, decoder)
+            } else {
+                null
+            }
+        }
 
         return VoiceCatalogEntry(
             key = key,
@@ -106,7 +131,8 @@ object VoiceCatalogParser {
             license = obj.optString("license").takeIf { it.isNotEmpty() },
             modelLicense = obj.optString("model_license").takeIf { it.isNotEmpty() },
             trainingData = trainingData,
-            int8Variant = int8Variant
+            int8Variant = int8Variant,
+            split = split
         )
     }
 }

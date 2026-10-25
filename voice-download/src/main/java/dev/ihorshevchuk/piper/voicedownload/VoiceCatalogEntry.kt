@@ -23,6 +23,32 @@ data class VoiceVariant(
 )
 
 /**
+ * One part of a split model build from the catalog's top-level `split`
+ * field. [modelUrl] is absolute; [sizeBytes] and [md5Digest] come from
+ * the catalog (null digest when it omits one).
+ */
+data class VoiceSplitPart(
+    val modelPath: String,
+    val modelUrl: String,
+    val sizeBytes: Long,
+    val md5Digest: String?
+)
+
+/**
+ * A split form of the standard model: an encoder and a decoder file
+ * that the synthesis engine loads as a pair instead of the full model,
+ * delivering audio in smaller chunks. Splitting changes only how the
+ * model is stored and streamed, not the audio it produces.
+ */
+data class VoiceSplit(
+    val encoder: VoiceSplitPart,
+    val decoder: VoiceSplitPart
+) {
+    /** Combined size of both parts. */
+    val totalSizeBytes: Long get() = encoder.sizeBytes + decoder.sizeBytes
+}
+
+/**
  * One downloadable voice from the catalog.
  *
  * [key] is the catalog key and the installed file stem: `<key>.onnx` /
@@ -55,13 +81,21 @@ data class VoiceCatalogEntry(
     val modelLicense: String? = null,
     val trainingData: TrainingData? = null,
     /** The INT8 ("Compact") build, when the catalog offers one. */
-    val int8Variant: VoiceVariant? = null
+    val int8Variant: VoiceVariant? = null,
+    /** The split (encoder/decoder) form of the standard model, when offered. */
+    val split: VoiceSplit? = null
 ) {
     /** File name under the voices dir, e.g. "en_US-lessac-medium.onnx". */
     val modelFileName: String get() = "$key.onnx"
 
     /** Config file name under the voices dir, e.g. "en_US-lessac-medium.onnx.json". */
     val configFileName: String get() = "$key.onnx.json"
+
+    /** Encoder part file name under the voices dir, e.g. "en_US-lessac-medium.encoder.onnx". */
+    val encoderFileName: String get() = "$key.encoder.onnx"
+
+    /** Decoder part file name under the voices dir, e.g. "en_US-lessac-medium.decoder.onnx". */
+    val decoderFileName: String get() = "$key.decoder.onnx"
 
     /** Combined FP16 download size (0 when the catalog reports no sizes). */
     val totalSizeBytes: Long get() = onnxSizeBytes + configSizeBytes
@@ -92,6 +126,27 @@ data class VoiceCatalogEntry(
     /** Combined download size under [format] (config is shared by both). */
     fun effectiveTotalSizeBytes(format: VoiceFormat): Long =
         effectiveOnnxSizeBytes(format) + configSizeBytes
+
+    /**
+     * The split this voice downloads under [format], or null: the
+     * catalog's split describes the standard model, so it applies to
+     * Standard downloads only. Compact (INT8) voices have no split
+     * build and always download and play as a single model file.
+     */
+    fun streamingSplit(format: VoiceFormat): VoiceSplit? =
+        if (format == VoiceFormat.STANDARD) split else null
+
+    /**
+     * Combined download size under [format] when [streaming] is on:
+     * a voice with a split downloads the encoder + decoder parts
+     * instead of the full model, so the parts (plus the shared
+     * config) are what counts.
+     */
+    fun effectiveTotalSizeBytes(format: VoiceFormat, streaming: Boolean): Long {
+        val split = if (streaming) streamingSplit(format) else null
+        return if (split != null) split.totalSizeBytes + configSizeBytes
+        else effectiveTotalSizeBytes(format)
+    }
 
     /**
      * Hosted sample audio for listening before installing:
