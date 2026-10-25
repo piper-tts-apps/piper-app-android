@@ -49,7 +49,9 @@ class VoiceDownloadManager(
         cacheFile = File(context.cacheDir, CATALOG_CACHE_FILE)
     ),
     private val downloader: FileDownloader = HttpFileDownloader(),
-    private val formatStore: VoiceFormatStore = VoiceFormatStore(context.applicationContext)
+    private val formatStore: VoiceFormatStore = VoiceFormatStore(context.applicationContext),
+    private val streamingStore: StreamingVoicesStore =
+        StreamingVoicesStore(context.applicationContext)
 ) {
 
     interface Listener {
@@ -81,8 +83,14 @@ class VoiceDownloadManager(
             emptySet()
         }
 
+    /**
+     * True when the voice is fully present: either its model file, or
+     * a complete encoder/decoder pair (a split download stores no
+     * model file). A partial pair is not an installation.
+     */
     fun isInstalled(entry: VoiceCatalogEntry): Boolean =
-        File(voicesDir, entry.modelFileName).isFile
+        File(voicesDir, entry.modelFileName).isFile ||
+            FileVoiceStore.hasCompleteSplitPair(voicesDir, entry.key)
 
     fun isDownloading(key: String): Boolean = sessions.isDownloading(key)
 
@@ -90,9 +98,14 @@ class VoiceDownloadManager(
      * Starts downloading [entry]'s model + config in the format chosen
      * in Settings ([VoiceFormatStore.current], read once at start;
      * installed voices keep their format). The model is always stored
-     * under the fixed name `<key>.onnx`, whichever build was fetched.
-     * Returns false (and calls nothing) when the voice
-     * is already installed or already downloading.
+     * under the fixed name `<key>.onnx`, whichever build was fetched -
+     * except a streaming download (Streaming voices on, Standard
+     * format, split offered), which stores the encoder/decoder pair
+     * under `<key>.encoder.onnx` / `<key>.decoder.onnx` INSTEAD of the
+     * model file: the engine loads the pair from those names, so the
+     * full model would be dead weight. Returns false (and calls
+     * nothing) when the voice is already installed or already
+     * downloading.
      */
     fun download(entry: VoiceCatalogEntry, listener: Listener?): Boolean {
         if (isInstalled(entry)) {
@@ -105,9 +118,10 @@ class VoiceDownloadManager(
         }
         val token = sessions.begin(entry.key)
         val format = formatStore.current
+        val streaming = streamingStore.enabled
         val future = executor.submit {
             try {
-                runDownload(entry, token, format, listener)
+                runDownload(entry, token, format, streaming, listener)
                 if (sessions.isCurrent(entry.key, token) &&
                     !sessions.isCancelled(token)
                 ) {
@@ -163,11 +177,21 @@ class VoiceDownloadManager(
      */
     fun delete(key: String): Boolean {
         if (isDownloading(key)) return false
-        val model = File(voicesDir, "$key.onnx")
-        val config = File(voicesDir, "$key.onnx.json")
-        if (!model.isFile && !config.isFile) return false
-        model.delete()
-        config.delete()
+        // Every file form a voice can take: model + config, the split
+        // pair, and pair parts parked by the streaming setting - an
+        // uninstall removes them all, whatever state the toggle is in.
+        val files = listOf(
+            File(voicesDir, "$key.onnx"),
+            File(voicesDir, "$key.onnx.json"),
+            File(voicesDir, FileVoiceStore.encoderFileName(key)),
+            File(voicesDir, FileVoiceStore.decoderFileName(key)),
+            File(voicesDir, FileVoiceStore.encoderFileName(key) +
+                StreamingPairSwitch.DISABLED_SUFFIX),
+            File(voicesDir, FileVoiceStore.decoderFileName(key) +
+                StreamingPairSwitch.DISABLED_SUFFIX)
+        )
+        if (files.none { it.isFile }) return false
+        files.forEach { it.delete() }
         if (prefs.activeVoiceName == key) {
             prefs.clear()
             Log.i(TAG, "cleared active voice after deleting $key")
@@ -180,6 +204,7 @@ class VoiceDownloadManager(
         entry: VoiceCatalogEntry,
         token: UUID,
         format: VoiceFormat,
+        streaming: Boolean,
         listener: Listener?
     ) {
         // A cancel that landed between the config and model files (or
@@ -187,24 +212,50 @@ class VoiceDownloadManager(
         // cancelled set is checked before each file.
         if (sessions.isCancelled(token)) throw InterruptedIOException("cancelled")
 
-        val total = entry.effectiveTotalSizeBytes(format)
+        val split = if (streaming) entry.streamingSplit(format) else null
+        val total = entry.effectiveTotalSizeBytes(format, streaming)
         var base = 0L
         val modelDest = File(voicesDir, entry.modelFileName)
         val configDest = File(voicesDir, entry.configFileName)
 
         postProgress(entry, token, listener, 0, total)
-        downloader.download(
-            url = entry.effectiveOnnxUrl(format),
-            dest = modelDest,
-            // Variants carry no MD5: size-only verification for INT8.
-            expectedSize = entry.effectiveOnnxSizeBytes(format),
-            expectedMd5 = entry.effectiveOnnxMd5(format),
-            onProgress = { d, _ ->
-                postProgress(entry, token, listener, d, total)
-                base = d
-            }
-        )
-        base = entry.effectiveOnnxSizeBytes(format)
+        if (split != null) {
+            // Streaming storage: the encoder/decoder pair replaces the
+            // model file. Each part is verified against the catalog's
+            // size + MD5 like any other download.
+            downloader.download(
+                url = split.encoder.modelUrl,
+                dest = File(voicesDir, entry.encoderFileName),
+                expectedSize = split.encoder.sizeBytes,
+                expectedMd5 = split.encoder.md5Digest,
+                onProgress = { d, _ ->
+                    postProgress(entry, token, listener, d, total)
+                }
+            )
+            base = split.encoder.sizeBytes
+            if (sessions.isCancelled(token)) throw InterruptedIOException("cancelled")
+            downloader.download(
+                url = split.decoder.modelUrl,
+                dest = File(voicesDir, entry.decoderFileName),
+                expectedSize = split.decoder.sizeBytes,
+                expectedMd5 = split.decoder.md5Digest,
+                onProgress = { d, _ -> postProgress(entry, token, listener, base + d, total) }
+            )
+            base = split.totalSizeBytes
+        } else {
+            downloader.download(
+                url = entry.effectiveOnnxUrl(format),
+                dest = modelDest,
+                // Variants carry no MD5: size-only verification for INT8.
+                expectedSize = entry.effectiveOnnxSizeBytes(format),
+                expectedMd5 = entry.effectiveOnnxMd5(format),
+                onProgress = { d, _ ->
+                    postProgress(entry, token, listener, d, total)
+                    base = d
+                }
+            )
+            base = entry.effectiveOnnxSizeBytes(format)
+        }
         if (entry.configUrl != null) {
             if (sessions.isCancelled(token)) throw InterruptedIOException("cancelled")
             downloader.download(

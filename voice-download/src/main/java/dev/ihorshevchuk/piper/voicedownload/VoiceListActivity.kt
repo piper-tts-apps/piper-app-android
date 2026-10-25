@@ -280,13 +280,14 @@ class VoiceListActivity : Activity() {
         // Sizes follow the Voice format setting (read at bind time, so a
         // change in Settings shows as soon as the user returns here).
         val format = VoiceFormatStore(this).current
+        val streaming = StreamingVoicesStore(this).enabled
         adapter.submitList(filtered.map { entry ->
             val overlay = rowState[entry.key]
             VoiceRow(
                 entry = entry,
                 isInstalled = entry.key in installedKeys,
                 isActive = entry.key == active,
-                displaySizeBytes = entry.effectiveTotalSizeBytes(format),
+                displaySizeBytes = entry.effectiveTotalSizeBytes(format, streaming),
                 downloadState = overlay?.state ?: RowDownloadState.IDLE,
                 progressPercent = overlay?.percent ?: 0,
                 errorMessage = overlay?.error,
@@ -515,7 +516,10 @@ class VoiceListActivity : Activity() {
         stopSample()
         stopPreview()
         val model = File(voicesDir, entry.modelFileName)
-        if (!model.isFile) {
+        // Installed means a model file OR a complete split pair: a
+        // streaming download stores no model file, and the engine
+        // loads the pair from the model path's stem.
+        if (!model.isFile && !FileVoiceStore.hasCompleteSplitPair(voicesDir, entry.key)) {
             val msg = getString(R.string.voice_preview_error_announcement, "not installed")
             root.announceForAccessibility(msg)
             return

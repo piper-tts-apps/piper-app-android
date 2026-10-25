@@ -22,6 +22,8 @@
     <string name="voice_format_standard">Standard (FP16)</string>
     <string name="voice_format_compact">Compact (INT8)</string>
     <string name="voice_format_description">Applies to new downloads. Installed voices keep their format. Compact voices are smaller and use less memory, with slightly reduced quality.</string>
+    <string name="streaming_voices">Streaming voices</string>
+    <string name="streaming_voices_description">For voices that offer a split model, download the encoder and decoder parts instead of the full model, and play audio in smaller chunks instead of waiting for each whole sentence. Turning this off hides the split parts of installed voices: a voice that also has a full model keeps playing from it, and a split-only voice becomes available again when streaming is turned back on. Applies to Standard voices; Compact voices are unaffected.</string>
     <string name="voice_licenses">Voice Licenses</string>
 
     <!-- Voice detail -->
